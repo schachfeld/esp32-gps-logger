@@ -2,19 +2,47 @@
 #include <SPI.h>
 #include <SD.h>
 
+// display libraries
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+
 #include <SparkFun_u-blox_GNSS_Arduino_Library.h>  //Click here to get the library: http://librarymanager/All#SparkFun_u-blox_GNSS
 SFE_UBLOX_GNSS myGNSS;
 
 #define RXD2 16
 #define TXD2 17
 
-File myFile;  
+File myFile;
 
 #define sdChipSelect 5
 #define packetLength 100  // NAV PVT is 92 + 8 bytes in length (including the sync chars, class, id, length and checksum bytes)
 uint8_t *myBuffer;        // Use myBuffer to hold the data while we write it to SD card
 char date1[22];
 char gpxFilename[16];
+
+// everything for the display
+#define OLED_RESET -1
+#define SCREEN_ADDRESS 0x3C
+#define SCREEN_WIDTH 128  // OLED display width, in pixels
+#define SCREEN_HEIGHT 32
+
+//SoftWire wire(13, 12);
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+bool display_available = false;
+
+int waitingDots = 0;
+
+void errorState() {
+  while (1) {
+    display.clearDisplay();
+    delay(1000);
+    display.fillRect(10, 10, 50, 30, WHITE);
+    display.display();
+    delay(1000);
+  }
+}
 
 
 void createGPXFileIfNotExists(fs::FS &fs, const char *path) {
@@ -107,19 +135,50 @@ void printPVTdata(UBX_NAV_PVT_data_t *ubxDataStruct) {
   Serial.println(F(" (mm)"));
 }
 
+void updateDisplay(UBX_NAV_PVT_data_t *ubxDataStruct) {
+  if (display_available == false) { return; }
+  waitingDots++;
+  if(waitingDots >3) waitingDots = 0;
+  display.clearDisplay();
+
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setCursor(0, 10);
+
+  if (ubxDataStruct->fixType == 0) {
+    display.print("Waiting for fix");
+    for(int i = 0; i <= waitingDots; i++){
+      display.print(F("."));
+    }
+    display.println();
+    display.print(F("NumSats:"));    
+    display.print(ubxDataStruct->numSV);
+    display.println();
+  }
+
+  if(ubxDataStruct->fixType > 0){
+    display.println("Aquired fix. Writing Data");
+  }
+
+  
+  display.display();
+}
+
 
 void writeGPX(UBX_NAV_PVT_data_t *ubxDataStruct) {
   printPVTdata(ubxDataStruct);
+  updateDisplay(ubxDataStruct);
+
   Serial.println();
 
-  if(ubxDataStruct->fixType == 0){
+  if (ubxDataStruct->fixType == 0) {
     Serial.println("Waiting for fix...");
     return;
   }
 
   sprintf(gpxFilename, "/%4d-%02d-%02d.gpx", ubxDataStruct->year, ubxDataStruct->month, ubxDataStruct->day);
   Serial.println(gpxFilename);
-  
+
 
 
   createGPXFileIfNotExists(SD, gpxFilename);
@@ -209,19 +268,25 @@ void writeFile(UBX_NAV_PVT_data_t *ubxDataStruct) {
 
 
 
+void setupDisplay() {
+  if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    return;
+  }
+
+  display_available = true;
+}
+
 void setup() {
   Serial.begin(115200);
-  while (!Serial)
-    ;  //Wait for user to open terminal
-  Serial.println("SparkFun u-blox Example");
+  Serial.println("Hello!");
 
+  setupDisplay();
 
   // See if the card is present and can be initialized:
   if (!SD.begin()) {
     Serial.println("Card failed, or not present. Freezing...");
-    // don't do anything more:
-    while (1)
-      ;
+    errorState();
   }
 
   uint8_t cardType = SD.cardType();
