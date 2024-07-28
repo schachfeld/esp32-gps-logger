@@ -7,6 +7,11 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
+// bluetooth
+#include <BLEDevice.h>
+#include <BLEUtils.h>
+#include <BLEServer.h>
+
 
 #include <SparkFun_u-blox_GNSS_Arduino_Library.h>  //Click here to get the library: http://librarymanager/All#SparkFun_u-blox_GNSS
 SFE_UBLOX_GNSS myGNSS;
@@ -28,7 +33,25 @@ char gpxFilename[16];
 #define SCREEN_WIDTH 128  // OLED display width, in pixels
 #define SCREEN_HEIGHT 32
 
-//SoftWire wire(13, 12);
+// Bluetooth
+#define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+#define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+BLECharacteristic *pCharacteristic;
+
+BLECharacteristic hourCharacteristic("cba1d466-344c-4be3-ab3f-189f80dd7518", BLECharacteristic::PROPERTY_NOTIFY);
+BLEDescriptor hourDescriptor(BLEUUID((uint8_t)0x2902));
+
+BLECharacteristic minCharacteristic("a23db600-7691-4fe0-8854-82614492bd4d", BLECharacteristic::PROPERTY_NOTIFY);
+BLEDescriptor minDescriptor(BLEUUID((uint8_t)0x2902));
+
+BLECharacteristic secCharacteristic("0ea1b645-837d-4249-98bb-5b0d3cfa0003", BLECharacteristic::PROPERTY_NOTIFY);
+BLEDescriptor secDescriptor(BLEUUID((uint8_t)0x2902));
+
+BLECharacteristic hourCharacteristic("702ca3f1-8343-470d-810f-4d49e8ac541c", BLECharacteristic::PROPERTY_NOTIFY);
+BLEDescriptor hourDescriptor(BLEUUID((uint16_t)0x2902));
+
+
+
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 bool display_available = false;
 
@@ -135,10 +158,71 @@ void printPVTdata(UBX_NAV_PVT_data_t *ubxDataStruct) {
   Serial.println(F(" (mm)"));
 }
 
+
+// Callback: printPVTdata will be called when new NAV PVT data arrives
+// See u-blox_structs.h for the full definition of UBX_NAV_PVT_data_t
+//         _____  You can use any name you like for the callback. Use the same name when you call setAutoPVTcallback
+//        /                  _____  This _must_ be UBX_NAV_PVT_data_t
+//        |                 /               _____ You can use any name you like for the struct
+//        |                 |              /
+//        |                 |              |
+void printPVTdataBLE(UBX_NAV_PVT_data_t *ubxDataStruct) {
+  Serial.println();
+
+
+  pCharacteristic->setValue("Hello World says Neil");
+
+
+  pCharacteristic->setValue(F("Time: "));  // Print the time
+  uint8_t hms = ubxDataStruct->hour;       // Print the hours
+  if (hms < 10) Serial.print(F("0"));      // Print a leading zero if required
+  pCharacteristic->setValue((uint8_t *)&hms);
+  pCharacteristic->setValue(F(":"));
+  hms = ubxDataStruct->min;  // Print the minutes
+  char text;
+  sprintf(text, "%x", hms);
+
+  if (hms < 10) Serial.print(F("0"));  // Print a leading zero if required
+  pCharacteristic->setValue(text);
+  pCharacteristic->setValue(F(":"));
+  hms = ubxDataStruct->sec;                         // Print the seconds
+  if (hms < 10) pCharacteristic->setValue(F("0"));  // Print a leading zero if required
+  pCharacteristic->setValue((uint8_t *)&hms);
+  pCharacteristic->setValue(F("."));
+  unsigned long millisecs = ubxDataStruct->iTOW % 1000;    // Print the milliseconds
+  if (millisecs < 100) pCharacteristic->setValue(F("0"));  // Print the trailing zeros correctly
+  if (millisecs < 10) pCharacteristic->setValue(F("0"));
+  pCharacteristic->setValue(&millisecs);
+
+  long latitude = ubxDataStruct->lat;  // Print the latitude
+  pCharacteristic->setValue(F(" Lat: "));
+
+  long modolatitude = latitude % 10000000;
+  pCharacteristic->setValue((latitude - modolatitude) / 10000000);
+  pCharacteristic->setValue(F("."));
+  pCharacteristic->setValue(&modolatitude);
+
+  long longitude = ubxDataStruct->lon;  // Print the longitude
+  pCharacteristic->setValue(F(" Long: "));
+  long modolulongitude = longitude % 10000000;
+  pCharacteristic->setValue((longitude - modolulongitude) / 10000000);
+  pCharacteristic->setValue(F("."));
+  pCharacteristic->setValue(&modolulongitude);
+  pCharacteristic->setValue(F(" (degrees * 10^-7)"));
+
+  long altitude = ubxDataStruct->hMSL;  // Print the height above mean sea level
+  pCharacteristic->setValue(F(" Height above MSL: "));
+  pCharacteristic->setValue(&altitude);
+  pCharacteristic->setValue(F(" (mm)"));
+  pCharacteristic->setValue("\n");
+
+  pCharacteristic->notify();
+}
+
 void updateDisplay(UBX_NAV_PVT_data_t *ubxDataStruct) {
   if (display_available == false) { return; }
   waitingDots++;
-  if(waitingDots >3) waitingDots = 0;
+  if (waitingDots > 3) waitingDots = 0;
   display.clearDisplay();
 
   display.setTextSize(1);
@@ -147,20 +231,20 @@ void updateDisplay(UBX_NAV_PVT_data_t *ubxDataStruct) {
 
   if (ubxDataStruct->fixType == 0) {
     display.print("Waiting for fix");
-    for(int i = 0; i <= waitingDots; i++){
+    for (int i = 0; i <= waitingDots; i++) {
       display.print(F("."));
     }
     display.println();
-    display.print(F("NumSats:"));    
+    display.print(F("NumSats:"));
     display.print(ubxDataStruct->numSV);
     display.println();
   }
 
-  if(ubxDataStruct->fixType > 0){
+  if (ubxDataStruct->fixType > 0) {
     display.println("Aquired fix. Writing Data");
   }
 
-  
+
   display.display();
 }
 
@@ -275,6 +359,26 @@ void setupDisplay() {
   }
 
   display_available = true;
+}
+
+void setupBluetooth() {
+  BLEDevice::init("****+++blevir");
+  BLEServer *pServer = BLEDevice::createServer();
+  BLEService *pService = pServer->createService(SERVICE_UUID);
+  pCharacteristic =
+    pService->createCharacteristic(CHARACTERISTIC_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
+
+  pService->addCharacteristic(&hourCharactaristic);
+
+  pCharacteristic->setValue("Hello! Welcome to the gps logger.");
+  pService->start();
+  // BLEAdvertising *pAdvertising = pServer->getAdvertising();  // this still is working for backward compatibility
+  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+  pAdvertising->addServiceUUID(SERVICE_UUID);
+  pAdvertising->setScanResponse(true);
+  pAdvertising->setMinPreferred(0x06);  // functions that help with iPhone connections issue
+  pAdvertising->setMinPreferred(0x12);
+  BLEDevice::startAdvertising();
 }
 
 void setup() {
