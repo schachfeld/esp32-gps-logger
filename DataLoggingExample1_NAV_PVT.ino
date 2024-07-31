@@ -9,6 +9,11 @@
 
 
 #include <SparkFun_u-blox_GNSS_Arduino_Library.h>  //Click here to get the library: http://librarymanager/All#SparkFun_u-blox_GNSS
+#include <EEPROM.h>
+
+unsigned long fileCounter;
+uint32_t age = 47;
+
 SFE_UBLOX_GNSS myGNSS;
 
 #define RXD2 16
@@ -20,7 +25,7 @@ File myFile;
 #define packetLength 100  // NAV PVT is 92 + 8 bytes in length (including the sync chars, class, id, length and checksum bytes)
 uint8_t *myBuffer;        // Use myBuffer to hold the data while we write it to SD card
 char date1[22];
-char gpxFilename[16];
+char gpxFilename[25];
 
 // everything for the display
 #define OLED_RESET -1
@@ -33,15 +38,15 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 bool display_available = false;
 
 int waitingDots = 0;
+uint8_t numSats = 0;
 
 void errorState() {
-  while (1) {
-    display.clearDisplay();
-    delay(1000);
-    display.fillRect(10, 10, 50, 30, WHITE);
-    display.display();
-    delay(1000);
-  }
+  display.clearDisplay();
+  delay(1000);
+  display.fillRect(10, 10, 50, 30, WHITE);
+  display.display();
+  delay(10000);
+  ESP.restart();
 }
 
 
@@ -138,29 +143,43 @@ void printPVTdata(UBX_NAV_PVT_data_t *ubxDataStruct) {
 void updateDisplay(UBX_NAV_PVT_data_t *ubxDataStruct) {
   if (display_available == false) { return; }
   waitingDots++;
-  if(waitingDots >3) waitingDots = 0;
+  if (waitingDots > 3) waitingDots = 0;
   display.clearDisplay();
 
   display.setTextSize(1);
   display.setTextColor(WHITE);
-  display.setCursor(0, 10);
+  display.setCursor(0, 0);
 
   if (ubxDataStruct->fixType == 0) {
     display.print("Waiting for fix");
-    for(int i = 0; i <= waitingDots; i++){
+    for (int i = 0; i <= waitingDots; i++) {
       display.print(F("."));
     }
     display.println();
-    display.print(F("NumSats:"));    
-    display.print(ubxDataStruct->numSV);
+    display.print(F("NumSats:"));
+    display.print(numSats);
     display.println();
   }
 
-  if(ubxDataStruct->fixType > 0){
-    display.println("Aquired fix. Writing Data");
+  if (ubxDataStruct->fixType > 0) {
+    display.print("Logging Data.");
+    for (int i = 0; i <= waitingDots; i++) {
+      display.print(F("."));
+    }
+    display.println();
+    display.print("Fix Type:");
+    if (ubxDataStruct->fixType == 1) { display.println("DR"); }
+    if (ubxDataStruct->fixType == 2) { display.println("2D"); }
+    if (ubxDataStruct->fixType == 3) { display.println("3D"); }
+
+    display.print("pDOP:");
+    display.println(ubxDataStruct->pDOP);
+
+    display.print("Sats used for lock:");
+    display.println(ubxDataStruct->numSV);
   }
 
-  
+
   display.display();
 }
 
@@ -176,7 +195,7 @@ void writeGPX(UBX_NAV_PVT_data_t *ubxDataStruct) {
     return;
   }
 
-  sprintf(gpxFilename, "/%4d-%02d-%02d.gpx", ubxDataStruct->year, ubxDataStruct->month, ubxDataStruct->day);
+  sprintf(gpxFilename, "/%4d-%02d-%02d-%08d.gpx", ubxDataStruct->year, ubxDataStruct->month, ubxDataStruct->day, fileCounter);
   Serial.println(gpxFilename);
 
 
@@ -195,10 +214,15 @@ void writeGPX(UBX_NAV_PVT_data_t *ubxDataStruct) {
 
   if (!dataFile) {
     Serial.println("Could not open gpx file.");
+
     return;
   }
 
   unsigned long filesize = dataFile.size();
+  if(filesize == 0){
+    SD.remove(gpxFilename);
+    ESP.restart();
+  }
   // back up the file pointer to just before the closing tags
   filesize -= 27;
   dataFile.seek(filesize);
@@ -277,9 +301,86 @@ void setupDisplay() {
   display_available = true;
 }
 
+void newNAVSAT(UBX_NAV_SAT_data_t *ubxDataStruct) {
+  Serial.println();
+
+  Serial.print(F("New NAV SAT data received. It contains data for "));
+  Serial.print(ubxDataStruct->header.numSvs);
+  numSats = ubxDataStruct->header.numSvs;
+  if (ubxDataStruct->header.numSvs == 1)
+    Serial.println(F(" SV."));
+  else
+    Serial.println(F(" SVs."));
+
+  // Just for giggles, print the signal strength for each SV as a barchart
+  for (uint16_t block = 0; block < ubxDataStruct->header.numSvs; block++)  // For each SV
+  {
+    switch (ubxDataStruct->blocks[block].gnssId)  // Print the GNSS ID
+    {
+      case 0:
+        Serial.print(F("GPS     "));
+        break;
+      case 1:
+        Serial.print(F("SBAS    "));
+        break;
+      case 2:
+        Serial.print(F("Galileo "));
+        break;
+      case 3:
+        Serial.print(F("BeiDou  "));
+        break;
+      case 4:
+        Serial.print(F("IMES    "));
+        break;
+      case 5:
+        Serial.print(F("QZSS    "));
+        break;
+      case 6:
+        Serial.print(F("GLONASS "));
+        break;
+      default:
+        Serial.print(F("UNKNOWN "));
+        break;
+    }
+
+    Serial.print(ubxDataStruct->blocks[block].svId);  // Print the SV ID
+
+    if (ubxDataStruct->blocks[block].svId < 10) Serial.print(F("   "));
+    else if (ubxDataStruct->blocks[block].svId < 100) Serial.print(F("  "));
+    else Serial.print(F(" "));
+
+    // Print the signal strength as a bar chart
+    for (uint8_t cno = 0; cno < ubxDataStruct->blocks[block].cno; cno++)
+      Serial.print(F("="));
+
+    Serial.println();
+  }
+}
+
+
 void setup() {
   Serial.begin(115200);
   Serial.println("Hello!");
+
+
+  if (!EEPROM.begin(0x100)) {
+    Serial.println("Failed to initialize Filecounter");
+    Serial.println("Restarting...");
+    delay(1000);
+    ESP.restart();
+  }
+
+
+
+  fileCounter = EEPROM.readULong(0);
+  fileCounter = fileCounter + 1;
+  Serial.print("Filecounter is ");
+  Serial.println(fileCounter);
+  EEPROM.writeULong(0, fileCounter);
+  EEPROM.commit();
+
+
+
 
   setupDisplay();
 
@@ -356,10 +457,12 @@ void setup() {
   myGNSS.setI2COutput(COM_TYPE_UBX);                  //Set the I2C port to output UBX only (turn off NMEA noise)
   myGNSS.saveConfigSelective(VAL_CFG_SUBSEC_IOPORT);  //Save (only) the communications port settings to flash and BBR
 
-  myGNSS.setNavigationFrequency(1);  //Produce one navigation solution per second
+  myGNSS.setNavigationFrequency(0.5);  //Produce one navigation solution per second
 
   // myGNSS.setAutoPVTcallbackPtr(&printPVTdata);  // Enable automatic NAV PVT messages with callback to printPVTdata
   myGNSS.setAutoPVTcallbackPtr(&writeGPX);
+
+  myGNSS.setAutoNAVSATcallbackPtr(&newNAVSAT);  // Enable automatic NAV SAT messages with callback to newNAVSAT
 
   myGNSS.logNAVPVT();  // Enable NAV PVT data logging
 
@@ -367,6 +470,8 @@ void setup() {
 
   Serial.println(F("Press any key to stop logging."));
 }
+
+
 
 void loop() {
   myGNSS.checkUblox();      // Check for the arrival of new data and process it.
