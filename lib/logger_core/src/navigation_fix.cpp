@@ -46,11 +46,10 @@ std::string formatCoordinateE7(std::int32_t coordinate_e7) {
 }
 
 std::string formatUtc(const UtcDateTime& utc) {
-  char output[32] = {};
+  char output[40] = {};
   std::snprintf(output, sizeof(output), "%04u-%02u-%02uT%02u:%02u:%02u.%03uZ", utc.year,
                 utc.month, utc.day, utc.hour, utc.minute, utc.second, utc.millisecond);
   return output;
 }
 
 }  // namespace gps_logger
-

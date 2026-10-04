@@ -1,9 +1,11 @@
 #include <Arduino.h>
 
-void setup() {
-  Serial.begin(115200);
-  Serial.println("ESP32 GPS logger firmware foundation ready");
+#include "application.h"
+
+namespace {
+gps_logger::Application application;
 }
 
-void loop() { delay(1000); }
+void setup() { application.begin(); }
 
+void loop() { application.tick(); }
