@@ -14,6 +14,7 @@ void Application::begin() {
 
   status_.display_ready = display_.begin();
   status_.sd_ready = logger_.begin();
+  status_.ble_ready = ble_.begin();
   status_.gnss_ready = gnss_.begin();
   updateStatus();
 }
@@ -29,11 +30,13 @@ void Application::tick() {
       status_.fix = new_fix;
       status_.has_fix = hasUsablePosition(new_fix);
       printFix(new_fix);
+      ble_.publishFix(new_fix);
     }
   }
 
   logger_.tick(now);
   updateStatus();
+  ble_.poll(status_, logger_, now);
   display_.render(status_, now);
   delay(2);
 }
@@ -54,6 +57,10 @@ void Application::retryHardware(std::uint32_t now_ms) {
 void Application::updateStatus() {
   status_.sd_ready = logger_.ready();
   status_.gnss_ready = gnss_.ready();
+  status_.ble_ready = ble_.ready();
+  status_.ble_connected = ble_.connected();
+  status_.ble_secured = ble_.secured();
+  status_.ble_passkey = ble_.passkey();
   status_.logging = status_.sd_ready && status_.gnss_ready;
   status_.session_id = logger_.sessionId();
   status_.bytes_written = logger_.bytesWritten();

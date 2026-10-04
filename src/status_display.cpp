@@ -57,6 +57,10 @@ void StatusDisplay::render(const RuntimeStatus& status, std::uint32_t now_ms) {
 
   if (status.write_failures > 0) {
     display_.printf("SD errors: %lu", static_cast<unsigned long>(status.write_failures));
+  } else if (status.ble_connected && status.ble_secured) {
+    display_.print("BLE connected");
+  } else if (status.ble_ready) {
+    display_.printf("BLE PIN %06lu", static_cast<unsigned long>(status.ble_passkey));
   } else {
     display_.printf("UBX %lu bytes", static_cast<unsigned long>(status.bytes_written));
   }

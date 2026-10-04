@@ -97,6 +97,13 @@ void TrackLogger::close() {
   ready_ = false;
 }
 
+File TrackLogger::openTrackDirectory() {
+  if (!mounted_) {
+    return {};
+  }
+  return SD.open(hardware::kTrackDirectory, FILE_READ);
+}
+
 File TrackLogger::openSessionForRead(std::uint32_t session_id) {
   if (!mounted_ || session_id == 0 || session_id == session_id_) {
     return {};

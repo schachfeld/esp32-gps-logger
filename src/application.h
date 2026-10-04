@@ -2,6 +2,7 @@
 
 #include <cstdint>
 
+#include "ble_service.h"
 #include "gnss_receiver.h"
 #include "runtime_status.h"
 #include "status_display.h"
@@ -22,6 +23,7 @@ class Application {
   StatusDisplay display_;
   TrackLogger logger_;
   GnssReceiver gnss_;
+  BleService ble_;
   RuntimeStatus status_;
   std::uint32_t last_sd_attempt_ms_ = 0;
   std::uint32_t last_gnss_attempt_ms_ = 0;

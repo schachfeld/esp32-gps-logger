@@ -25,6 +25,7 @@ class TrackLogger {
   [[nodiscard]] std::uint32_t writeFailures() const { return write_failures_; }
   [[nodiscard]] const String& activePath() const { return active_path_; }
 
+  File openTrackDirectory();
   File openSessionForRead(std::uint32_t session_id);
   static String sessionPath(std::uint32_t session_id);
 
